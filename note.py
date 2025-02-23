@@ -24,6 +24,7 @@ try:
     COLOR_PRIORITY_HIGH = Fore.RED
     COLOR_PRIORITY_MEDIUM = Fore.YELLOW
     COLOR_PRIORITY_LOW = Fore.GREEN
+    COLOR_COMPLETED = Fore.LIGHTBLACK_EX  # Серый цвет для выполненных/отмененных задач
     COLOR_RESET = Style.RESET_ALL  # Сброс цвета
 except ImportError:
     COLOR_TODO = ""
@@ -34,6 +35,7 @@ except ImportError:
     COLOR_PRIORITY_HIGH = ""
     COLOR_PRIORITY_MEDIUM = ""
     COLOR_PRIORITY_LOW = ""
+    COLOR_COMPLETED = ""
     COLOR_RESET = ""
 
 # Имя файла для хранения данных
@@ -61,18 +63,29 @@ def save_data(data):
 
 def display_items(items, level=0):
     """Отображает список задач и заметок."""
-    for i, item in enumerate(items):
+    active_items = []
+    completed_items = []
+
+    for item in items:
+        if item["type"] == "task" and item["status"] in ("выполнено", "отменено"):
+            completed_items.append(item)
+        else:
+            active_items.append(item)
+
+    all_items = active_items + completed_items # сначала активные, потом завершенные
+
+    for i, item in enumerate(all_items):
         prefix = "  " * level + f"{i+1}. "
         if item["type"] == "task":
             status_str, color = get_status_display(item["status"])
             priority_str, priority_color = get_priority_display(item["priority"])
-            item_color = get_item_color(item["priority"]) # получаем цвет для всего элемента
+            item_color = get_item_color(item["priority"], item["status"])  # получаем цвет для всего элемента
 
             print(f"{prefix}{item_color}{status_str} {item['title']} {priority_str}{COLOR_RESET}")
         elif item["type"] == "note":
             status_str, color = get_status_display(item["status"])
             priority_str, priority_color = get_priority_display(item["priority"])
-            item_color = get_item_color(item["priority"])  # получаем цвет для всего элемента
+            item_color = get_item_color(item["priority"], item["status"])  # получаем цвет для всего элемента
 
             print(f"{prefix}{item_color}{status_str} {item['title']} {priority_str}{COLOR_RESET}")
 
@@ -104,16 +117,19 @@ def get_priority_display(priority):
     else:
         return "(Неизвестный приоритет)", ""  # Default case
 
-def get_item_color(priority):
-    """Возвращает цвет элемента в зависимости от его приоритета."""
-    if priority == "высокий":
+
+def get_item_color(priority, status):
+    """Возвращает цвет элемента в зависимости от его приоритета и статуса."""
+    if status in ("выполнено", "отменено"):
+        return COLOR_COMPLETED
+    elif priority == "высокий":
         return COLOR_PRIORITY_HIGH
     elif priority == "средний":
         return COLOR_PRIORITY_MEDIUM
     elif priority == "низкий":
         return COLOR_PRIORITY_LOW
     else:
-        return "" # Default case
+        return ""  # Default case
 
 
 def display_note_content(note):
@@ -128,7 +144,8 @@ def display_note_content(note):
 
 def add_note(data, title, parent=None):
     """Добавляет новую заметку."""
-    new_note = {"type": "note", "title": title, "content": "", "children": [], "status": "к выполнению", "priority": "средний"}  # Добавлены статус и приоритет по умолчанию
+    new_note = {"type": "note", "title": title, "content": "", "children": [], "status": "к выполнению",
+                "priority": "средний"}  # Добавлены статус и приоритет по умолчанию
     if parent is None:
         data["notes"].append(new_note)
     else:
@@ -138,7 +155,8 @@ def add_note(data, title, parent=None):
 
 def add_task(data, title, description, parent=None):
     """Добавляет новую задачу."""
-    new_task = {"type": "task", "title": title, "description": description, "status": "к выполнению", "priority": "средний"}  # Добавлен приоритет по умолчанию
+    new_task = {"type": "task", "title": title, "description": description, "status": "к выполнению",
+                "priority": "средний"}  # Добавлен приоритет по умолчанию
     if parent is None:
         data["tasks"].append(new_task)
     else:
@@ -188,8 +206,13 @@ def edit_task(task, new_title=None, new_description=None, new_status=None, new_p
     print("Задача отредактирована.")
 
 
-def delete_item(data, index, item_type, parent=None):
+def delete_item(data, index, parent=None):
     """Удаляет заметку или задачу."""
+    item, item_type = get_item_by_index(data, index, parent)
+    if item is None:
+        print("Ошибка: Элемент с таким индексом не найден.")
+        return
+
     try:
         index = int(index) - 1
         if index < 0:
@@ -227,65 +250,94 @@ def delete_item(data, index, item_type, parent=None):
         print("Ошибка: Введите числовой индекс.")
 
 
-def view_item(data, index, item_type, parent=None):
+def view_item(data, index, parent=None):
     """Отображает детали заметки или задачи."""
+    item, item_type = get_item_by_index(data, index, parent)
+    if item is None:
+        print("Ошибка: Элемент с таким индексом не найден.")
+        return None
+
+    if item_type == "note":
+        display_note_content(item)
+        status_str, color = get_status_display(item["status"])  # Get display string and color
+        priority_str, priority_color = get_priority_display(item["priority"])
+        print(f"Статус: {color}{status_str}{COLOR_RESET}")
+        print(f"Приоритет: {priority_color}{priority_color}{COLOR_RESET}\n")
+        return item
+
+    elif item_type == "task":
+        status_str, color = get_status_display(item["status"])  # Get display string and color
+        priority_str, priority_color = get_priority_display(item["priority"])
+
+        print(f"\nЗадача: {item['title']}")
+        print(f"Описание: {item['description']}")
+        print(f"Статус: {color}{status_str}{COLOR_RESET}")
+        print(f"Приоритет: {priority_color}{priority_color}{COLOR_RESET}\n")
+        return None
+
+    else:
+        print("Ошибка: Неверный тип элемента.")
+        return None
+
+
+def edit_item(data, index, parent=None):
+    """Редактирует заметку или задачу."""
+    item, item_type = get_item_by_index(data, index, parent)
+    if item is None:
+        print("Ошибка: Элемент с таким индексом не найден.")
+        return
+
+    if item_type == "note":
+        new_title = input("Новый заголовок (оставьте пустым, чтобы пропустить): ")
+        new_content = input("Новое содержимое (оставьте пустым, чтобы пропустить): ")
+        new_status = input(
+            f"Новый статус (к выполнению, в процессе, ожидает, выполнено, отменено, оставьте пустым, чтобы пропустить) [{item['status']}]: ")
+        new_priority = input(
+            f"Новый приоритет (высокий, средний, низкий, оставьте пустым, чтобы пропустить) [{item['priority']}]: ")
+        edit_note(item, new_title, new_content, new_status, new_priority)
+
+    elif item_type == "task":
+        new_title = input("Новый заголовок (оставьте пустым, чтобы пропустить): ")
+        new_description = input("Новое описание (оставьте пустым, чтобы пропустить): ")
+        new_status = input(
+            f"Новый статус (к выполнению, в процессе, ожидает, выполнено, отменено, оставьте пустым, чтобы пропустить) [{item['status']}]: ")
+        new_priority = input(
+            f"Новый приоритет (высокий, средний, низкий, оставьте пустым, чтобы пропустить) [{item['priority']}]: ")
+        edit_task(item, new_title, new_description, new_status, new_priority)
+
+    else:
+        print("Ошибка: Неверный тип элемента.")
+
+
+def get_item_by_index(data, index, parent=None):
+    """Получает элемент (задачу или заметку) по индексу, автоматически определяя тип."""
     try:
         index = int(index) - 1
         if index < 0:
             print("Ошибка: Некорректный индекс.")
-            return
+            return None, None
 
         if parent is None:
-            if item_type == "note":
-                if index < len(data["notes"]):
-                    note = data["notes"][index]
-                    display_note_content(note)
-                    status_str, color = get_status_display(note["status"])  # Get display string and color
-                    priority_str, priority_color = get_priority_display(note["priority"])
-                    print(f"Статус: {color}{status_str}{COLOR_RESET}")
-                    print(f"Приоритет: {priority_color}{priority_str}{COLOR_RESET}\n")
-                    return data["notes"][index]  # Возвращаем объект для дальнейшей навигации
-                else:
-                    print("Ошибка: Заметка с таким индексом не найдена.")
-            elif item_type == "task":
-                if index < len(data["tasks"]):
-                    task = data["tasks"][index]
-                    status_str, color = get_status_display(task["status"])  # Get display string and color
-                    priority_str, priority_color = get_priority_display(task["priority"])
+            if index < len(data["notes"]):
+                return data["notes"][index], "note"
+            index -= len(data["notes"])  # Сдвигаем индекс, чтобы искать в задачах
 
-                    print(f"\nЗадача: {task['title']}")
-                    print(f"Описание: {task['description']}")
-                    print(f"Статус: {color}{status_str}{COLOR_RESET}")
-                    print(f"Приоритет: {priority_color}{priority_str}{COLOR_RESET}\n")
-                    return None  # Задачи не содержат вложенных элементов, поэтому ничего не возвращаем.
-                else:
-                    print("Ошибка: Задача с таким индексом не найдена.")
+            if index < len(data["tasks"]):
+                return data["tasks"][index], "task"
             else:
-                print("Ошибка: Неверный тип элемента для просмотра.")
+                print("Ошибка: Элемент с таким индексом не найден.")
+                return None, None
         else:
             if index < len(parent["children"]):
                 item = parent["children"][index]
-                if item["type"] == "note":
-                    display_note_content(item)
-                    status_str, color = get_status_display(item["status"])  # Get display string and color
-                    priority_str, priority_color = get_priority_display(item["priority"])
-                    print(f"Статус: {color}{status_str}{COLOR_RESET}")
-                    print(f"Приоритет: {priority_color}{priority_str}{COLOR_RESET}\n")
-
-                    return item
-                elif item["type"] == "task":
-                    status_str, color = get_status_display(item["status"])  # Get display string and color
-                    priority_str, priority_color = get_priority_display(item["priority"])
-                    print(f"\nЗадача: {item['title']}")
-                    print(f"Описание: {item['description']}")
-                    print(f"Статус: {color}{status_str}{COLOR_RESET}")
-                    print(f"Приоритет: {priority_color}{priority_str}{COLOR_RESET}\n")
-                    return None
+                return item, item["type"]
             else:
                 print("Ошибка: Элемент с таким индексом не найден.")
+                return None, None
+
     except ValueError:
         print("Ошибка: Введите числовой индекс.")
-    return None
+        return None, None
 
 
 def main():
@@ -307,7 +359,7 @@ def main():
 
         print("\nКоманды:")
         print("+n|t <название> - Добавить заметку|задачу")
-        print("e|d|v [n|t] <индекс> - Редактировать|Удалить|Просмотреть заметку (n) или задачу (t)")
+        print("e|d|v <индекс> - Редактировать|Удалить|Просмотреть элемент (задачу или заметку)")
         print(".. - Вернуться на уровень выше")
         print("q - Выход")
 
@@ -336,127 +388,29 @@ def main():
                 print("Ошибка: Укажите название и описание задачи.")
 
         elif action == "e":
-            if len(command) > 2:
-                item_type = command[1]
-                index = command[2]
-                if item_type == "n":
-                    if current_context is None:
-                        if int(index) - 1 < len(data["notes"]):
-                            note_to_edit = data["notes"][int(index) - 1]
-                            new_title = input("Новый заголовок (оставьте пустым, чтобы пропустить): ")
-                            new_content = input("Новое содержимое (оставьте пустым, чтобы пропустить): ")
-                            new_status = input(
-                                f"Новый статус (к выполнению, в процессе, ожидает, выполнено, отменено, оставьте пустым, чтобы пропустить) [{note_to_edit['status']}]: ")
-                            new_priority = input(
-                                f"Новый приоритет (высокий, средний, низкий, оставьте пустым, чтобы пропустить) [{note_to_edit['priority']}]: ")
-                            edit_note(note_to_edit, new_title, new_content, new_status, new_priority)
-                            save_data(data)
-                        else:
-                            print("Ошибка: Заметка с таким индексом не найдена.")
-                    else:
-                        if int(index) - 1 < len(current_context["children"]):
-                            note_to_edit = current_context["children"][int(index) - 1]
-                            if note_to_edit["type"] == "note":
-                                new_title = input("Новый заголовок (оставьте пустым, чтобы пропустить): ")
-                                new_content = input("Новое содержимое (оставьте пустым, чтобы пропустить): ")
-                                new_status = input(
-                                    f"Новый статус (к выполнению, в процессе, ожидает, выполнено, отменено, оставьте пустым, чтобы пропустить) [{note_to_edit['status']}]: ")
-                                new_priority = input(
-                                    f"Новый приоритет (высокий, средний, низкий, оставьте пустым, чтобы пропустить) [{note_to_edit['priority']}]: ")
-                                edit_note(note_to_edit, new_title, new_content, new_status, new_priority)
-                                save_data(data)
-                            else:
-                                print("Ошибка: Это задача, а не заметка.")
-                        else:
-                            print("Ошибка: Заметка с таким индексом не найдена.")
-
-
-                elif item_type == "t":
-                    if current_context is None:
-                        if int(index) - 1 < len(data["tasks"]):
-                            task_to_edit = data["tasks"][int(index) - 1]
-                            new_title = input("Новый заголовок (оставьте пустым, чтобы пропустить): ")
-                            new_description = input("Новое описание (оставьте пустым, чтобы пропустить): ")
-                            new_status = input(
-                                f"Новый статус (к выполнению, в процессе, ожидает, выполнено, отменено, оставьте пустым, чтобы пропустить) [{task_to_edit['status']}]: ")
-                            new_priority = input(
-                                f"Новый приоритет (высокий, средний, низкий, оставьте пустым, чтобы пропустить) [{task_to_edit['priority']}]: ")
-                            edit_task(task_to_edit, new_title, new_description, new_status, new_priority)
-                            save_data(data)
-                        else:
-                            print("Ошибка: Задача с таким индексом не найдена.")
-                    else:
-                        if int(index) - 1 < len(current_context["children"]):
-                            task_to_edit = current_context["children"][int(index) - 1]
-                            if task_to_edit["type"] == "task":
-                                new_title = input("Новый заголовок (оставьте пустым, чтобы пропустить): ")
-                                new_description = input("Новое описание (оставьте пустым, чтобы пропустить): ")
-                                new_status = input(
-                                    f"Новый статус (к выполнению, в процессе, ожидает, выполнено, отменено, оставьте пустым, чтобы пропустить) [{task_to_edit['status']}]: ")
-                                new_priority = input(
-                                    f"Новый приоритет (высокий, средний, низкий, оставьте пустым, чтобы пропустить) [{task_to_edit['priority']}]: ")
-                                edit_task(task_to_edit, new_title, new_description, new_status, new_priority)
-                                save_data(data)
-                            else:
-                                print("Ошибка: Это заметка, а не задача.")
-                        else:
-                            print("Ошибка: Задача с таким индексом не найдена.")
-                else:
-                    print("Ошибка: Укажите тип элемента (n для заметки, t для задачи).")
-
+            if len(command) > 1:
+                index = command[1]
+                edit_item(data, index, parent=current_context)
+                save_data(data)
             else:
-                print("Ошибка: Укажите тип элемента и индекс для редактирования.")
+                print("Ошибка: Укажите индекс элемента для редактирования.")
 
         elif action == "d":
-            if len(command) > 2:
-                item_type = command[1]
-                index = command[2]
-
-                if item_type == "n":
-                    delete_item(data, index, "note", parent=current_context)
-                    save_data(data)
-                elif item_type == "t":
-                    delete_item(data, index, "task", parent=current_context)
-                    save_data(data)
-                else:
-                    print("Ошибка: Укажите тип элемента (n для заметки, t для задачи).")
+            if len(command) > 1:
+                index = command[1]
+                delete_item(data, index, parent=current_context)
+                save_data(data)
             else:
-                print("Ошибка: Укажите тип элемента и индекс для удаления.")
+                print("Ошибка: Укажите индекс элемента для удаления.")
 
         elif action == "v":
-            if len(command) > 2:
-                item_type = command[1]
-                index = command[2]
-
-                if item_type == "n":
-                    if current_context is None:
-                        note_to_view = data["notes"][int(index)-1]
-                        status_str, color = get_status_display(note_to_view["status"])  # Get display string and color
-                        priority_str, priority_color = get_priority_display(note_to_view["priority"])
-                        print(f"Статус: {color}{status_str}{COLOR_RESET}")
-                        print(f"Приоритет: {priority_color}{priority_color}{COLOR_RESET}\n")
-                        new_context = view_item(data, index, "note")
-
-
-                        if new_context:
-                            current_context = new_context  # Переходим в контекст выбранной заметки
-                    else:
-
-                        note_to_view = current_context["children"][int(index)-1]
-                        status_str, color = get_status_display(note_to_view["status"])  # Get display string and color
-                        priority_str, priority_color = get_priority_display(note_to_view["priority"])
-                        print(f"Статус: {color}{status_str}{COLOR_RESET}")
-                        print(f"Приоритет: {priority_color}{priority_color}{COLOR_RESET}\n")
-
-                        new_context = view_item(data, index, "note", parent=current_context)
-                        if new_context:
-                            current_context = new_context
-                elif item_type == "t":
-                    view_item(data, index, "task", parent=current_context)  # Задачи не содержат вложенных элементов, поэтому никуда не переходим.
-                else:
-                    print("Ошибка: Укажите тип элемента (n для заметки, t для задачи).")
+            if len(command) > 1:
+                index = command[1]
+                new_context = view_item(data, index, parent=current_context)
+                if new_context and new_context["type"] == "note":
+                    current_context = new_context
             else:
-                print("Ошибка: Укажите тип элемента и индекс для просмотра.")
+                print("Ошибка: Укажите индекс элемента для просмотра.")
 
         elif action == "..":
             if current_context is not None:
